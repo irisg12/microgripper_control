@@ -2,31 +2,22 @@ import cv2 # pip install opencv-python
 import numpy as np
 import time
 
-MS = 20 # milliseconds - 20fps (+ 30 to process each frame)
-kernel = np.ones((3,3))
-centroids = []
-angles = []
-openColor = (0,0,255) # red
-SEARCH_AREA = 175
-cropping = False
-bot_rect = None
+def microgripperDetection(color):
 
-# 14umTest1 works
-# 14umTest3 works
-
-vid = cv2.VideoCapture('16umSerpTest1.mp4') # testVid1.avi
-
-if not vid.isOpened():
-    print("File could not be opened")
+    kernel = np.ones((3,3))
+    centroids = []
+    angles = []
+    openColor = (0,0,255) # red
+    SEARCH_AREA = 175
+    cropping = False
+    bot_rect = None
+    j = 0
     
-#out = cv2.VideoWriter("output.mp4", cv2.VideoWriter_fourcc(*'mp4v'), 30, (1280,960))
-j = 0
-while vid.isOpened(): # and j < 20*30:
+    # 14umTest1 works
+    # 14umTest3 works
+    
     start_time = time.time()
     j = j + 1
-    ret, color = vid.read()
-    if not ret:
-        break
     
     color = cv2.resize(color, (1280, 720), interpolation=cv2.INTER_AREA)
     frame = cv2.cvtColor(color, cv2.COLOR_BGR2GRAY)
@@ -53,7 +44,7 @@ while vid.isOpened(): # and j < 20*30:
     if contours:
         #! error check contours size
         sortedPairs = sorted(zip(contours, hierarchy[0]), key=lambda pair: cv2.contourArea(pair[0]), reverse=True)[:5]
-        contours, hierarchy = zip(*(sortedPairs)) 				# adjust number of accepted contours (10)
+        contours, hierarchy = zip(*(sortedPairs)) # adjust number of accepted contours (10)
         for i in range(0, len(contours)):
             #! fit ellipse requires at least 5 points 
             if len(contours[i]) >= 5:
@@ -75,7 +66,7 @@ while vid.isOpened(): # and j < 20*30:
                         centroids.append((cx,cy))
                         angles.append(angle)
                         #print(rect)
-                        break
+                        return #NULL
                     else:
                         #cropping = True
                         (avg_cx, avg_cy) = np.mean(centroids, axis=0)  
@@ -95,7 +86,7 @@ while vid.isOpened(): # and j < 20*30:
                             if len(centroids) > 5:
                                 centroids.pop(0)
                                 angles.pop(0)
-                        break
+                        return #NULL
                         
                     
         #field = cv2.approxPolyDP(contours[0], 0.11 * cv2.arcLength(contours[0], True), True)    # add this in maybe 
@@ -167,19 +158,40 @@ while vid.isOpened(): # and j < 20*30:
             box = cv2.boxPoints(bot_rect)
             box = np.intp(box)
             cv2.drawContours(color, [box], 0, openColor, 2)
+            
+            print(cx, cy)
     
     else:
         print("No robot contours found.")
     
-    cv2.imshow("Video", color)
-    cv2.imshow("Edges", edges)
-    cv2.imshow("Histogram", equ)
-    #out.write(frame)
+    #cv2.imshow("Video", color)
+    #cv2.imshow("Edges", edges)
+    #cv2.imshow("Histogram", equ)
     end_time = time.time()
     #print((end_time-start_time)*1000)
-    if cv2.waitKey(MS) & 0xFF == ord(' '):	# end video 
-        break
+    return color
+
+def main():
+    MS = 20 # milliseconds - 20fps (+ 30 to process each frame)
+    vid = cv2.VideoCapture('16umSerpTest1.mp4') # testVid1.avi
+    if not vid.isOpened():
+        print("File could not be opened")
     
-vid.release()
-#out.release()
-cv2.destroyAllWindows()
+    while vid.isOpened():
+        ret, cv_image = vid.read()
+        if not ret:
+            break
+    
+        processed_img = microgripperDetection(cv_image)
+        if (processed_img is not None):    
+            cv2.imshow("Video", processed_img)
+            
+        if cv2.waitKey(MS) & 0xFF == ord(' '):	# end video 
+            break
+    
+    vid.release()
+    cv2.destroyAllWindows()
+    
+if __name__ == "__main__":
+    main()
+
