@@ -2,12 +2,9 @@ import cv2 # pip install opencv-python
 import numpy as np
 import time
 
-def microgripperDetection(color):
+def microgripperDetection(color, openColor, centroids, angles):
 
     kernel = np.ones((3,3))
-    centroids = []
-    angles = []
-    openColor = (0,0,255) # red
     SEARCH_AREA = 175
     cropping = False
     bot_rect = None
@@ -66,14 +63,14 @@ def microgripperDetection(color):
                         centroids.append((cx,cy))
                         angles.append(angle)
                         #print(rect)
-                        return #NULL
+                        print("<5")
+                        break
                     else:
                         #cropping = True
                         (avg_cx, avg_cy) = np.mean(centroids, axis=0)  
                         avg_angle = np.mean(angles)
                         print(avg_cy-cy)
                         if (abs(avg_cx-cx) < 20) and (abs(avg_cy-cy) < 30) and (abs(avg_angle - angle) < 40): #! Add if center moves too far 
-                            print("good")
                             """if hierarchy[i][2] == -1: # no child contours = green drawing
                                 openColor = (0, 255, 0)
                             else:
@@ -85,11 +82,11 @@ def microgripperDetection(color):
 
                             if len(centroids) > 5:
                                 centroids.pop(0)
-                                angles.pop(0)
-                        return #NULL
-                        
+                                angles.pop(0)   
+                        break                     
                     
         #field = cv2.approxPolyDP(contours[0], 0.11 * cv2.arcLength(contours[0], True), True)    # add this in maybe 
+        
         if bot_rect:
                             
             (cx, cy), (width, height), angle = bot_rect
@@ -158,8 +155,6 @@ def microgripperDetection(color):
             box = cv2.boxPoints(bot_rect)
             box = np.intp(box)
             cv2.drawContours(color, [box], 0, openColor, 2)
-            
-            print(cx, cy)
     
     else:
         print("No robot contours found.")
@@ -169,11 +164,15 @@ def microgripperDetection(color):
     #cv2.imshow("Histogram", equ)
     end_time = time.time()
     #print((end_time-start_time)*1000)
-    return color
+    return color, openColor, centroids, angles
 
 def main():
-    MS = 20 # milliseconds - 20fps (+ 30 to process each frame)
-    vid = cv2.VideoCapture('16umSerpTest1.mp4') # testVid1.avi
+    MS = 5 # milliseconds - 20fps (+ 30 to process each frame)
+    centroids = []
+    angles = []
+    openColor = (0,0,255) # red
+    
+    vid = cv2.VideoCapture('../14umTest1.mp4') # testVid1.avi
     if not vid.isOpened():
         print("File could not be opened")
     
@@ -182,9 +181,11 @@ def main():
         if not ret:
             break
     
-        processed_img = microgripperDetection(cv_image)
+        processed_img, openColor, centroids, angles = microgripperDetection(cv_image, openColor, centroids, angles)
         if (processed_img is not None):    
             cv2.imshow("Video", processed_img)
+        else:
+            print("No image received")
             
         if cv2.waitKey(MS) & 0xFF == ord(' '):	# end video 
             break
