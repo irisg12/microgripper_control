@@ -20,17 +20,19 @@ def microgripperDetection(color, openColor, centroids, angles):
     frame = cv2.cvtColor(color, cv2.COLOR_BGR2GRAY)
     
     # Adjust picture contrast / equalize it? 
+    blurred = cv2.bilateralFilter(frame,5,150,150)
+    threshed = cv2.adaptiveThreshold(blurred,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY,49,-2)
     clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(24,24))
     equ = clahe.apply(frame)
-    edges_orig = cv2.Canny(equ,50,150) # adjust: gradient <25 is rejected, in between depends on connectivity
+    edges_orig = cv2.Canny(equ,50,150) # adjust: gradient < value 1 is rejected, in between depends on connectivity
     edges_orig = cv2.dilate(edges_orig, kernel, iterations=3)
     edges_orig = cv2.erode(edges_orig, kernel, iterations=2)
     
     edges = cv2.dilate(edges_orig, kernel, iterations=7)
     edges = cv2.erode(edges, kernel, iterations=7)
-    #edges = cv2.dilate(edges, kernel, iterations=1)
+    ##edges = cv2.dilate(edges, kernel, iterations=1)
     
-    edges = cv2.bitwise_or(edges, edges_orig)
+    #edges = cv2.bitwise_or(edges, edges_orig)
     
     crop_mask = np.zeros_like(edges)
     if cropping:
@@ -63,13 +65,11 @@ def microgripperDetection(color, openColor, centroids, angles):
                         centroids.append((cx,cy))
                         angles.append(angle)
                         #print(rect)
-                        print("<5")
                         break
                     else:
                         #cropping = True
                         (avg_cx, avg_cy) = np.mean(centroids, axis=0)  
                         avg_angle = np.mean(angles)
-                        print(avg_cy-cy)
                         if (abs(avg_cx-cx) < 20) and (abs(avg_cy-cy) < 30) and (abs(avg_angle - angle) < 40): #! Add if center moves too far 
                             """if hierarchy[i][2] == -1: # no child contours = green drawing
                                 openColor = (0, 255, 0)
@@ -93,7 +93,8 @@ def microgripperDetection(color, openColor, centroids, angles):
             if width > height:
                 width, height = height, width
                 angle = angle+90
-            angle = np.radians(angle-90)   
+            angle = np.radians(angle-90)  
+            print(height/width) 
             
             unit_x = np.sin(angle)
             unit_y = np.cos(angle)
@@ -128,6 +129,7 @@ def microgripperDetection(color, openColor, centroids, angles):
                 percent = float(num_white1) / total_white 
             cv2.line(color, front, (int(cx), int(cy)), openColor, 2)
             
+            # adjust for front vs back
             # back_rect = [(back[0] - unit_x,back[1] - unit_y), (back[0] + unit_x, back[1] + unit_y)]
             Rback_x = cx - width*.375*unit_x + height*.375*unit_y
             Rback_y = cy + width/4.0*unit_y + height/4.0*unit_x
@@ -160,14 +162,14 @@ def microgripperDetection(color, openColor, centroids, angles):
         print("No robot contours found.")
     
     #cv2.imshow("Video", color)
-    #cv2.imshow("Edges", edges)
-    #cv2.imshow("Histogram", equ)
+    cv2.imshow("Edges", threshed)
+    cv2.imshow("Histogram", equ)
     end_time = time.time()
     #print((end_time-start_time)*1000)
     return color, openColor, centroids, angles
 
 def main():
-    MS = 5 # milliseconds - 20fps (+ 30 to process each frame)
+    MS = 50 # milliseconds - 20fps (+ 30 to process each frame)
     centroids = []
     angles = []
     openColor = (0,0,255) # red
