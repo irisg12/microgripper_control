@@ -9,7 +9,7 @@ import time
 import rospy
 from geometry_msgs.msg import Pose, Point, Quaternion  # For robot position
 from mag_msgs.msg import DipoleGradientStamped
-from std_msgs.msg import Float32MultiArray
+from std_msgs.msg import Float64MultiArray
 import tf.transformations as tf_transfrormations
 from sensor_msgs.msg import Image 
 
@@ -260,7 +260,7 @@ def publish_pose(publisher,x,y,theta,opening,timestamp=None):
         # Convert the orientation to quaternion (only around z-axis)
         try:  
             # Create message
-            pose_msg = Float32MultiArray()
+            pose_msg = Float64MultiArray()
             pose_msg.data = [x, y, theta, opening, timestamp.to_sec()]
 
             # Publish the message
@@ -296,7 +296,7 @@ def main():
     prev_contour_area = None
     
     rospy.Subscriber("/camera/basler_camera_1/image_raw", Image, image_callback)
-    publisher = rospy.Publisher('/vision_feedback/pose_estimation', Float32MultiArray, queue_size=10)
+    publisher = rospy.Publisher('/vision_feedback/pose_estimation', Float64MultiArray, queue_size=10)
     rospy.spin()   
 
 if __name__ == "__main__":
