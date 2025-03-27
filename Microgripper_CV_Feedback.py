@@ -19,7 +19,7 @@ import cv2 # pip install opencv-python
 
 
 
-def microgripperDetection(color, openColor, centroids, angles, prev_contour_area=None):
+def microgripperDetection(color, openColor, centroids, angles, areas, openlengths):
 
     kernel = np.ones((3,3))
     SEARCH_AREA = 175
@@ -77,22 +77,25 @@ def microgripperDetection(color, openColor, centroids, angles, prev_contour_area
                     #print("new width:", width)
                 else:
                     angle = angle-90 
-                current_area = cv2.contourArea(contours[i])
+                area = cv2.contourArea(contours[i])
                 #cv2.drawContours(color, [cv2.approxPolyDP(contours[i], 0.01 * cv2.arcLength(contours[i], True), True)], 0, openColor, 2)
-                if width < 1.75*height and current_area < 50000 and current_area > 5000: # adjust from 1.5
+                if width < 1.75*height and area < 50000 and area > 5000: # adjust from 1.5
                     # Calculate contour area
                     
 
                     
                     # Perform outlier rejection if we have enough history
                     is_outlier = False
-                    if len(centroids) >= 3:
+                    if len(centroids) >= 10:
                         # Check if area is within threshold of previous area
-                        percent_change = abs(current_area - prev_contour_area) / prev_contour_area
-                        if percent_change > area_threshold:
-                            print(f"Area outlier rejected {percent_change*100:.1f}% - ignoring: {current_area:.0f} vs {prev_contour_area:.0f}")
-                            openColor = (0, 0, 255)  # red
-                            is_outlier = True
+                        mean_area = np.mean(areas)  
+                        std_area = np.std(areas)
+                        if std_area > 0:  # Avoid division by zero
+                            # Calculate z-score for area
+                            z_area = abs(area - mean_area) / std_area
+                            if z_area > 3.0:  # 3 standard deviations
+                                print(f"Area outlier rejected: {area:.0f} - z-score: {z_area:.2f}")
+                                is_outlier = True
 
                         # Calculate statistics for centroids
                         centroids_array = np.array(centroids)
@@ -134,7 +137,7 @@ def microgripperDetection(color, openColor, centroids, angles, prev_contour_area
                         bot_cnt = contours[i]
                         centroids.append((cx,cy))
                         angles.append(angle)
-                        current_contour_area = current_area
+                        areas.append(area)
                         openColor = (0, 255, 0)  # green
                         #print(rect)
                         break
@@ -148,12 +151,13 @@ def microgripperDetection(color, openColor, centroids, angles, prev_contour_area
                         bot_cnt = contours[i]
                         centroids.append((cx,cy))
                         angles.append(angle)
-                        current_contour_area = current_area
+                        areas.append(area)
                         openColor = (0, 255, 0)  # green
                         
                         if len(centroids) > 5:
                             centroids.pop(0)
-                            angles.pop(0)   
+                            angles.pop(0)
+                            areas.pop(0)   
                         break                     
                     
         #field = cv2.approxPolyDP(contours[0], 0.11 * cv2.arcLength(contours[0], True), True)    # add this in maybe 
@@ -203,8 +207,14 @@ def microgripperDetection(color, openColor, centroids, angles, prev_contour_area
             #print("angle", angle)             
             
             if len(tipl) != 0:  
-                openLength = np.linalg.norm(tipl-tipr) 
-                    
+                openlength = np.linalg.norm(tipl-tipr) 
+                if len(openlengths)>=5:
+                    avg_openlength = np.mean(openlengths) 
+                    z_openlength = abs(openlength - avg_openlength) / np.std(openlengths)
+                    if z_openlength > 3.0:  # 3 standard deviations
+                        openlengths.append(openlength)
+                    openlengths.pop(0)
+
                 cv2.circle(color, tipl, radius = 6, color=openColor, thickness= -1)
                 cv2.circle(color, tipr, radius = 6, color=openColor, thickness= -1)
                 cv2.drawContours(color, [simple_hull], 0, openColor, 2)    
@@ -216,26 +226,25 @@ def microgripperDetection(color, openColor, centroids, angles, prev_contour_area
     #cv2.imshow("Histogram", equ)
     end_time = time.time()
     #print((end_time-start_time)*1000)
-    return color, openColor, centroids, angles, current_contour_area
+    return color, openColor, centroids, angles, areas, openlengths
 
 def ProcessVideo():
     MS = 50 # milliseconds - 20fps (+ 30 to process each frame)
     centroids = []
     angles = []
+    areas = []
     openColor = (0,0,255) # red
     
     vid = cv2.VideoCapture('../new_vid2.mp4') # testVid1.avi
     if not vid.isOpened():
         print("File could not be opened")
-    
-    prev_contour_area = None
-    
+      
     while vid.isOpened():
         ret, cv_image = vid.read()
         if not ret:
             break
     
-        processed_img, openColor, centroids, angles, prev_contour_area = microgripperDetection(cv_image, openColor, centroids, angles, prev_contour_area)
+        processed_img, openColor, centroids, angles, areas, openlength= microgripperDetection(cv_image, openColor, centroids, angles, areas)
         if (processed_img is not None):    
             cv2.imshow("Video", cv2.resize(processed_img, None, fx=.5, fy=.5, interpolation=cv2.INTER_AREA))
         else:
@@ -261,23 +270,27 @@ def publish_pose(publisher,x,y,theta,opening,timestamp=None):
 
 def image_callback(msg):
     bridge = CvBridge()
-    global centroids, angles, prev_contour_area
-    openColor = (0,255,0)  # red
+    global centroids, angles, areas, publisher, openlengths
+    openColor = (0,255,0)  # green
     timestamp = msg.header.stamp
     try:
         cv_image = bridge.imgmsg_to_cv2(msg, "bgr8")
     except:
         rospy.logerr("Image could not be read")
         return
-    processed_img, openColor, centroids, angles, prev_contour_area = microgripperDetection(cv_image, openColor, centroids, angles, prev_contour_area)
+    processed_img, openColor, centroids, angles, areas, openlengths = microgripperDetection(cv_image, openColor, centroids, angles, areas, openlengths)
     if (processed_img is not None):
-        publish_pose(publisher, centroids[-1][0], centroids[-1][1], angles[-1], 0, timestamp)
-
+        publish_pose(publisher, centroids[-1][0], centroids[-1][1], angles[-1], openlengths, timestamp)
+        cv2.imshow("Processed Image", cv2.resize(processed_img, None, fx=.5, fy=.5, interpolation=cv2.INTER_AREA))
+        if cv2.waitKey(2) & 0xFF == ord(' '):	# end video 
+            cv2.destroyAllWindows() # need to break from spinning
 def main():
     rospy.init_node('image_processor_node', anonymous=True)
     
     # Initialize global variables
-    global centroids, angles, prev_contour_area, publisher
+    global centroids, angles, prev_contour_area, publisher, areas, openlengths
+    openlengths = []
+    areas = []
     centroids = []
     angles = []
     prev_contour_area = None
