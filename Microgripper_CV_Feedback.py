@@ -7,7 +7,7 @@ import time
 
 #ROS imports
 import rospy
-from geometry_msgs.msg import PoseStamped, Pose, Point, Quaternion  # For robot position
+from geometry_msgs.msg import Pose, Point, Quaternion  # For robot position
 from mag_msgs.msg import DipoleGradientStamped
 from std_msgs.msg import Float32MultiArray
 import tf.transformations as tf_transfrormations
@@ -26,7 +26,11 @@ def microgripperDetection(color, openColor, centroids, angles, prev_contour_area
     cropping = False
     bot_rect = None
     j = 0
-    area_threshold = 0.20  # 10% threshold for contour area change
+    area_threshold = 0.20  # 20% threshold for contour area change
+    
+    # Position and angle outlier rejection thresholds
+    position_threshold = 3.0  # Standard deviations
+    angle_threshold = 3.0     # Standard deviations
     
     # 14umTest1 works
     # 14umTest3 works
@@ -78,13 +82,52 @@ def microgripperDetection(color, openColor, centroids, angles, prev_contour_area
                 if width < 1.75*height and current_area < 50000 and current_area > 5000: # adjust from 1.5
                     # Calculate contour area
                     
-                    # Check if area is within threshold of previous area
-                    if prev_contour_area is not None:
+
+                    
+                    # Perform outlier rejection if we have enough history
+                    is_outlier = False
+                    if len(centroids) >= 3:
+                        # Check if area is within threshold of previous area
                         percent_change = abs(current_area - prev_contour_area) / prev_contour_area
                         if percent_change > area_threshold:
-                            print(f"Contour area changed by {percent_change*100:.1f}% - ignoring: {current_area:.2f} vs {prev_contour_area:.2f}")
+                            print(f"Area outlier rejected {percent_change*100:.1f}% - ignoring: {current_area:.0f} vs {prev_contour_area:.0f}")
                             openColor = (0, 0, 255)  # red
-                            continue
+                            is_outlier = True
+
+                        # Calculate statistics for centroids
+                        centroids_array = np.array(centroids)
+                        mean_x = np.mean(centroids_array[:, 0])
+                        mean_y = np.mean(centroids_array[:, 1])
+                        std_x = np.std(centroids_array[:, 0])
+                        std_y = np.std(centroids_array[:, 1])
+                        
+                        # Check if new position is an outlier
+                        if std_x > 0 and std_y > 0:  # Avoid division by zero
+                            z_x = abs(cx - mean_x) / std_x
+                            z_y = abs(cy - mean_y) / std_y
+                            
+                            if z_x > position_threshold or z_y > position_threshold:
+                                print(f"Position outlier rejected: ({cx:.1f}, {cy:.1f}) - z-scores: x={z_x:.2f}, y={z_y:.2f}")
+                                is_outlier = True
+                        
+                        # Calculate statistics for angles
+                        mean_angle = np.mean(angles)
+                        std_angle = np.std(angles)
+                        
+                        # Check if new angle is an outlier (handling circular nature of angles)
+                        if std_angle > 0:  # Avoid division by zero
+                            # Calculate smallest angle difference accounting for wraparound
+                            angle_diff = min(abs(angle - mean_angle), 360 - abs(angle - mean_angle))
+                            z_angle = angle_diff / std_angle
+                            
+                            if z_angle > angle_threshold:
+                                print(f"Angle outlier rejected: {angle:.1f}° - z-score: {z_angle:.2f}")
+                                is_outlier = True
+                    
+                    # Skip this contour if it's an outlier
+                    if is_outlier:
+                        openColor = (0, 0, 255)  # red
+                        continue
                     
                     if len(centroids) < 5:
                         bot_rect = rect
@@ -92,27 +135,25 @@ def microgripperDetection(color, openColor, centroids, angles, prev_contour_area
                         centroids.append((cx,cy))
                         angles.append(angle)
                         current_contour_area = current_area
+                        openColor = (0, 255, 0)  # green
                         #print(rect)
                         break
                     else:
                         #cropping = True
                         (avg_cx, avg_cy) = np.mean(centroids, axis=0)  
                         avg_angle = np.mean(angles)
-                        if (True): #(abs(avg_cx-cx) < 30) and (abs(avg_cy-cy) < 30) and (abs(avg_angle - angle) < 40): #! Add if center moves too far 
-                            # 30 and 40
-                            """if hierarchy[i][2] == -1: # no child contours = green drawing
-                                openColor = (0, 255, 0)
-                            else:
-                                openColor = (0, 0, 255)"""
-                            bot_rect = rect
-                            bot_cnt = contours[i]
-                            centroids.append((cx,cy))
-                            angles.append(angle)
-                            current_contour_area = current_area
-
-                            if len(centroids) > 5:
-                                centroids.pop(0)
-                                angles.pop(0)   
+                        
+                        # Accept the detection
+                        bot_rect = rect
+                        bot_cnt = contours[i]
+                        centroids.append((cx,cy))
+                        angles.append(angle)
+                        current_contour_area = current_area
+                        openColor = (0, 255, 0)  # green
+                        
+                        if len(centroids) > 5:
+                            centroids.pop(0)
+                            angles.pop(0)   
                         break                     
                     
         #field = cv2.approxPolyDP(contours[0], 0.11 * cv2.arcLength(contours[0], True), True)    # add this in maybe 
@@ -208,26 +249,11 @@ def ProcessVideo():
 
 def publish_pose(publisher,x,y,theta,opening,timestamp=None):
         # Convert the orientation to quaternion (only around z-axis)
-        qz = math.sin((theta+math.pi)/2.0)
-        qw = math.cos((theta+math.pi)/2.0)
         try:  
-            # Create PoseStamped message
+            # Create message
             pose_msg = Float32MultiArray()
-            pose_msg.header.stamp = rospy.Time.now()
-            pose_msg.header.frame_id = "world"
-            
-            # Set position (x, y, z)
-            pose_msg.pose.position = Point(x=x, y=y, z=0.0)
-            
-            # Convert theta to quaternion (rotation around z-axis)
-            pose_msg.pose.orientation = Quaternion(
-                x=0.0,
-                y=0.0,
-                z=qz,
-                w=qw
-            )
-            pose_msg.pose.timestamp = timestamp
-            pose_msg.pose.opening = opening
+            pose_msg.data = [x, y, theta, opening, timestamp.to_sec()]
+
             # Publish the message
             publisher.publish(pose_msg)
         except Exception as e:
