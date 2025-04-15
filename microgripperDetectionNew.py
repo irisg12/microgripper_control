@@ -184,7 +184,7 @@ def main():
     openColor = (0,0,255) # red
     j = 0
     
-    vid = cv2.VideoCapture('../new_vid1.mp4') # testVid1.avi
+    vid = cv2.VideoCapture('../new_vid3.mp4') # testVid1.avi
     if not vid.isOpened():
         print("File could not be opened")
     

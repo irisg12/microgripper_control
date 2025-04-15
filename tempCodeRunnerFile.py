@@ -1,1 +1,1 @@
-drawCont
+spheroidDetection(cv_image, width)
